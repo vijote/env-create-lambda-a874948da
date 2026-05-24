@@ -1,0 +1,55 @@
+name: Deploy Cargo Lambda
+
+on:
+  push:
+    branches:
+      - main  # Trigger on push to main branch
+  workflow_dispatch:
+    inputs:
+      id_entorno:
+        description: 'ID único del entorno efímero'
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
+  AWS_GITHUB_S3_ROLE_NAME: ${{ vars.AWS_GITHUB_S3_ROLE_NAME }}
+
+permissions:
+  id-token: write   # Requerido si usas OIDC para autenticarte en AWS
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install Zig (Required for cross-compilation)
+        uses: korandoru/setup-zig@v1
+
+      - name: Install Cargo Lambda
+        run: |
+          pip3 install cargo-lambda
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.AWS_GITHUB_S3_ROLE_NAME }}
+          role-session-name: GitHubActionsS3Deployment
+
+      - name: Build Lambda
+        run: cargo lambda build --release --target x86_64-unknown-linux-musl
+
+      - name: Deploy Lambda
+        run: cargo lambda deploy
