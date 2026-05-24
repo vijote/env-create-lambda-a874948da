@@ -36,7 +36,7 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Install Zig toolchain
-        uses: https://codeberg.org/mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.13.0
 
