@@ -1,0 +1,17 @@
+[package]
+name = "recipes-app-env-create"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Runtime de Lambda y eventos
+lambda_http = "1.2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+# AWS SDK para Rust
+aws-config = { version = "1.1", features = ["behavior-version-latest"] }
+aws-sdk-cloudformation = "1.1"
+aws-sdk-dynamodb = "1.111.0"
+aws-sdk-cloudfront= "1.118.0"
