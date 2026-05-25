@@ -48,7 +48,12 @@ jobs:
           role-session-name: GitHubActionsS3Deployment
 
       - name: Build Lambda
-        run: cargo lambda build --release --target x86_64-unknown-linux-musl
+        run: cargo lambda build --release --target x86_64-unknown-linux-musl --output-format zip
 
-      - name: Deploy Lambda
-        run: cargo lambda deploy
+      - name: Upload Artifact to S3
+        run: |
+          # Copiamos el zip generado al directorio actual renombrándolo a bootstrap.zip
+          cp target/lambda/*/*.zip ./bootstrap.zip
+          
+          # Lo subimos a S3 con el nuevo nombre
+          aws s3 cp ./bootstrap.zip s3://${{ env.AWS_BUCKET_NAME }}/
