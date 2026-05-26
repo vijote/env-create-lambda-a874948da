@@ -1,11 +1,12 @@
 use aws_config::BehaviorVersion;
-use aws_sdk_cloudformation::types::Parameter;
+use aws_sdk_cloudformation::{types::Parameter};
 use aws_sdk_cloudformation::Client as CfnClient;
+use aws_sdk_dynamodb::operation::put_item::PutItemError;
 use lambda_http::{run, service_fn, Error, Request, Response, IntoResponse, http::{StatusCode, Method}};
 use serde::{Deserialize, Serialize};
 use lambda_http::RequestPayloadExt;
 use std::env;
-use aws_sdk_dynamodb::Client as DynamoClient;
+use aws_sdk_dynamodb::{Client as DynamoClient, operation::put_item::PutItemOutput};
 use aws_sdk_dynamodb::types::AttributeValue;
 use std::collections::HashMap;
 
@@ -105,13 +106,12 @@ async fn deploy_ephemeral_stack(client: &CfnClient, dynamo_client: &DynamoClient
     let table_name = env::var("TABLE_NAME")
         .expect("La variable de entorno TABLE_NAME no está configurada");
 
-    let rule_priority = get_rule_priority(dynamo_client, &table_name, environment_id)
+    let rule_priority = get_rule_priority(dynamo_client, &table_name)
+        .await;
+
+    create_new_environment_record(dynamo_client, &table_name, environment_id, rule_priority)
         .await
-        .map_err(|e| {
-            // Esto imprimirá el error con todos sus detalles técnicos en CloudWatch
-            eprintln!("Error detallado en get_or_create_rule_priority: {:?}", e);
-            Error::from(format!("Error en prioridad: {:?}", e))
-        })?;
+        .expect("Error al crear el entorno");
 
     let parameters = vec![
         Parameter::builder().parameter_key("ProjectName").parameter_value("recipes-app").build(),
@@ -157,7 +157,7 @@ pub async fn get_absolute_highest_priority(dynamo_client: &DynamoClient, table_n
         .items
         .unwrap_or_default()
         .iter()
-        .filter_map(|item| item.get("HighestRulePriority"))
+        .filter_map(|item| item.get("highest_rule_priority"))
         .filter_map(|attr| match attr {
             aws_sdk_dynamodb::types::AttributeValue::N(val) => val.parse::<i32>().ok(),
             _ => None,
@@ -170,23 +170,29 @@ pub async fn get_absolute_highest_priority(dynamo_client: &DynamoClient, table_n
 
 async fn get_rule_priority(
     dynamo_client: &DynamoClient,
-    table_name: &str,
-    environment_id: &str,
-) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
+    table_name: &str
+) -> i32 {
     let highest_priority = get_absolute_highest_priority(dynamo_client, table_name).await;
     let new_priority = 60 - highest_priority.unwrap();
 
+    new_priority
+}
+
+async fn create_new_environment_record(
+    dynamo_client: &DynamoClient,
+    table_name: &str,
+    environment_id: &str,
+    rule_priority: i32,
+) -> Result<PutItemOutput, aws_smithy_runtime_api::client::result::SdkError<PutItemError, aws_smithy_runtime_api::http::Response>> {
     let mut new_item = HashMap::new();
-    new_item.insert("Environment".to_string(), AttributeValue::S(environment_id.to_string()));
-    new_item.insert("HighestRulePriority".to_string(), AttributeValue::N(new_priority.to_string()));
-    new_item.insert("State".to_string(), AttributeValue::S("unused".to_string()));
+    new_item.insert("environment".to_string(), AttributeValue::S(environment_id.to_string()));
+    new_item.insert("highest_rule_priority".to_string(), AttributeValue::N(rule_priority.to_string()));
+    new_item.insert("state".to_string(), AttributeValue::S("unused".to_string()));
 
     dynamo_client
         .put_item()
         .table_name(table_name)
         .set_item(Some(new_item))
         .send()
-        .await?;
-
-    Ok(new_priority)
+        .await
 }
