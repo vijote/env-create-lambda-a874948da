@@ -106,10 +106,7 @@ async fn deploy_ephemeral_stack(client: &CfnClient, dynamo_client: &DynamoClient
     let table_name = env::var("TABLE_NAME")
         .expect("La variable de entorno TABLE_NAME no está configurada");
 
-    let rule_priority = get_rule_priority(dynamo_client, &table_name)
-        .await;
-
-    create_new_environment_record(dynamo_client, &table_name, environment_id, rule_priority)
+    create_new_environment_record(dynamo_client, &table_name, environment_id)
         .await
         .expect("Error al crear el entorno");
 
@@ -117,10 +114,6 @@ async fn deploy_ephemeral_stack(client: &CfnClient, dynamo_client: &DynamoClient
         Parameter::builder().parameter_key("ProjectName").parameter_value("recipes-app").build(),
         Parameter::builder().parameter_key("Environment").parameter_value(environment_id).build(),
         Parameter::builder().parameter_key("GithubWorkspaceName").parameter_value("vijote").build(),
-        
-        // Aquí insertamos dinámicamente el valor obtenido de DynamoDB
-        Parameter::builder().parameter_key("UsersRulePriority").parameter_value((60 - rule_priority - 10).to_string()).build(),
-        Parameter::builder().parameter_key("RecipesRulePriority").parameter_value((60 - rule_priority).to_string()).build(),
 
         Parameter::builder().parameter_key("HostMFRepositoryName").parameter_value("host-mf-a874948da").build(),
         Parameter::builder().parameter_key("RecipesMFRepositoryName").parameter_value("recipes-mf-a874948da").build(),
@@ -145,49 +138,14 @@ async fn deploy_ephemeral_stack(client: &CfnClient, dynamo_client: &DynamoClient
     Ok(stack_id)
 }
 
-pub async fn get_absolute_highest_priority(dynamo_client: &DynamoClient, table_name: &str) -> Result<i32, Box<dyn std::error::Error>> {
-    let response = dynamo_client
-        .scan()
-        .table_name(table_name)
-        .send()
-        .await?;
-
-    // Extraer, parsear y encontrar el valor máximo de forma funcional
-    let highest_priority = response
-        .items
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|item| item.get("highest_rule_priority"))
-        .filter_map(|attr| match attr {
-            aws_sdk_dynamodb::types::AttributeValue::N(val) => val.parse::<i32>().ok(),
-            _ => None,
-        })
-        .max()           // Encuentra el número más grande de la colección
-        .unwrap_or(20);   // Si la tabla está vacía, por defecto retorna 20
-
-    Ok(highest_priority)
-}
-
-async fn get_rule_priority(
-    dynamo_client: &DynamoClient,
-    table_name: &str
-) -> i32 {
-    let highest_priority = get_absolute_highest_priority(dynamo_client, table_name).await;
-    let new_priority = 60 - highest_priority.unwrap();
-
-    new_priority
-}
-
 async fn create_new_environment_record(
     dynamo_client: &DynamoClient,
     table_name: &str,
     environment_id: &str,
-    rule_priority: i32,
 ) -> Result<PutItemOutput, aws_smithy_runtime_api::client::result::SdkError<PutItemError, aws_smithy_runtime_api::http::Response>> {
     let mut new_item = HashMap::new();
     new_item.insert("environment".to_string(), AttributeValue::S(environment_id.to_string()));
-    new_item.insert("highest_rule_priority".to_string(), AttributeValue::N(rule_priority.to_string()));
-    new_item.insert("state".to_string(), AttributeValue::S("unused".to_string()));
+    new_item.insert("state".to_string(), AttributeValue::S("processing".to_string()));
 
     dynamo_client
         .put_item()
