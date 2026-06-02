@@ -145,7 +145,7 @@ async fn create_new_environment_record(
 ) -> Result<PutItemOutput, aws_smithy_runtime_api::client::result::SdkError<PutItemError, aws_smithy_runtime_api::http::Response>> {
     let mut new_item = HashMap::new();
     new_item.insert("environment".to_string(), AttributeValue::S(environment_id.to_string()));
-    new_item.insert("state".to_string(), AttributeValue::S("processing".to_string()));
+    new_item.insert("status".to_string(), AttributeValue::S("processing".to_string()));
 
     dynamo_client
         .put_item()
